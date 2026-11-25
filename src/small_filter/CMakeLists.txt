@@ -1,5 +1,5 @@
 add_executable(small_filter main.cc)
-target_include_directories(small_filter PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(small_filter PRIVATE libhit)
 set_property(TARGET small_filter PROPERTY FOLDER "example")
 
 set(test_data "${PROJECT_SOURCE_DIR}/vsprojects/small_filter/test_data.bin")
@@ -10,3 +10,5 @@ endif()
 add_test(NAME small_filter COMMAND small_filter)
 set_tests_properties(small_filter PROPERTIES
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+
+install(TARGETS small_filter RUNTIME DESTINATION .)

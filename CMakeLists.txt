@@ -1,9 +1,24 @@
 cmake_minimum_required(VERSION 3.20)
 
+# Force out-of-source build: if no build directory specified, default to build/
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
+    message(FATAL_ERROR
+        "In-source builds are not allowed. Please use:\n"
+        "  cmake -B build\n"
+        "  cmake --build build")
+endif()
+
 # Select 32-bit Visual Studio builds by default when the caller did not choose
 # an architecture. This must happen before project() enables the C++ toolchain.
 if(WIN32 AND NOT DEFINED CMAKE_GENERATOR_PLATFORM)
     set(CMAKE_GENERATOR_PLATFORM Win32 CACHE STRING "Target platform" FORCE)
+endif()
+
+# Set default install directory to ./bin (non-MSVC only)
+if(NOT MSVC AND CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/bin" CACHE PATH "Install directory" FORC
+E)
+    message(STATUS "Install prefix set to: ${CMAKE_INSTALL_PREFIX}")
 endif()
 
 project(libhit LANGUAGES CXX)
@@ -63,6 +78,10 @@ libhit_set_directory_targets_folder("${LIBHIT_BENCHMARK_SOURCE_DIR}" "third-part
 # Shared header-only library target used by the independent example projects.
 add_library(libhit INTERFACE)
 target_include_directories(libhit INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+
+if(NOT MSVC)
+    target_compile_options(libhit INTERFACE -march=native)
+endif()
 
 add_subdirectory(src/small)
 add_subdirectory(src/small_file)

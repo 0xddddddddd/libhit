@@ -18,7 +18,7 @@
 
 namespace
 {
-    constexpr std::size_t kBufSize = 1024 * 1024 * 1024;   // 256 MiB
+    constexpr std::size_t kBufSize = 32 * 1024 * 1024;   // 32 MiB
 
     // Fixed seed so every benchmark sees exactly the same data
     std::vector<std::uint8_t> make_buffer()

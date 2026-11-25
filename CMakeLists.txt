@@ -23,6 +23,10 @@ option(LIBHIT_FETCH_BENCHMARK "Fetch Google Benchmark v1.10.0 if missing" ON)
 set(LIBHIT_BENCHMARK_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party/benchmark"
     CACHE PATH "Local Google Benchmark source directory")
 
+set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
+set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+
 if(NOT EXISTS "${LIBHIT_BENCHMARK_SOURCE_DIR}/CMakeLists.txt")
     if(NOT LIBHIT_FETCH_BENCHMARK)
         message(FATAL_ERROR
@@ -36,16 +40,10 @@ if(NOT EXISTS "${LIBHIT_BENCHMARK_SOURCE_DIR}/CMakeLists.txt")
         GIT_SHALLOW TRUE
         SOURCE_DIR "${LIBHIT_BENCHMARK_SOURCE_DIR}"
     )
-    FetchContent_GetProperties(google_benchmark)
-    if(NOT google_benchmark_POPULATED)
-        FetchContent_Populate(google_benchmark)
-    endif()
+    FetchContent_MakeAvailable(google_benchmark)
+else()
+    add_subdirectory("${LIBHIT_BENCHMARK_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/third-party/benchmark" EXCLUDE_FROM_ALL)
 endif()
-
-set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
-set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-add_subdirectory("${LIBHIT_BENCHMARK_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/third-party/benchmark" EXCLUDE_FROM_ALL)
 
 # Keep all Google Benchmark targets, including targets in nested CMake
 # directories, under a dedicated Visual Studio solution folder.

@@ -1,13 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
 
-# Force out-of-source build: if no build directory specified, default to build/
-if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
-    message(FATAL_ERROR
-        "In-source builds are not allowed. Please use:\n"
-        "  cmake -B build\n"
-        "  cmake --build build")
-endif()
-
 # Select 32-bit Visual Studio builds by default when the caller did not choose
 # an architecture. This must happen before project() enables the C++ toolchain.
 if(WIN32 AND NOT DEFINED CMAKE_GENERATOR_PLATFORM)

@@ -1,5 +1,6 @@
 add_executable(small_filter main.cc)
 target_include_directories(small_filter PRIVATE ${PROJECT_SOURCE_DIR}/include)
+set_property(TARGET small_filter PROPERTY FOLDER "example")
 
 set(test_data "${PROJECT_SOURCE_DIR}/vsprojects/small_filter/test_data.bin")
 if(EXISTS "${test_data}")

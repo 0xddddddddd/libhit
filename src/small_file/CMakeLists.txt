@@ -1,5 +1,6 @@
 add_executable(small_file main.cc)
 target_include_directories(small_file PRIVATE ${PROJECT_SOURCE_DIR}/include)
+set_property(TARGET small_file PROPERTY FOLDER "example")
 
 set(test_data "${PROJECT_SOURCE_DIR}/vsprojects/small_file/test_data.bin")
 if(EXISTS "${test_data}")

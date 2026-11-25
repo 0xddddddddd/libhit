@@ -1,9 +1,19 @@
 cmake_minimum_required(VERSION 3.20)
+
+# Select 32-bit Visual Studio builds by default when the caller did not choose
+# an architecture. This must happen before project() enables the C++ toolchain.
+if(WIN32 AND NOT DEFINED CMAKE_GENERATOR_PLATFORM)
+    set(CMAKE_GENERATOR_PLATFORM Win32 CACHE STRING "Target platform" FORCE)
+endif()
+
 project(libhit LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Organize generated Visual Studio targets into solution folders.
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 enable_testing()
 
@@ -36,6 +46,21 @@ set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
 set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
 set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory("${LIBHIT_BENCHMARK_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/third-party/benchmark" EXCLUDE_FROM_ALL)
+
+# Keep all Google Benchmark targets, including targets in nested CMake
+# directories, under a dedicated Visual Studio solution folder.
+function(libhit_set_directory_targets_folder directory folder_name)
+    get_property(_targets DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(_target IN LISTS _targets)
+        set_property(TARGET "${_target}" PROPERTY FOLDER "${folder_name}")
+    endforeach()
+
+    get_property(_subdirectories DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
+    foreach(_subdirectory IN LISTS _subdirectories)
+        libhit_set_directory_targets_folder("${_subdirectory}" "${folder_name}")
+    endforeach()
+endfunction()
+libhit_set_directory_targets_folder("${LIBHIT_BENCHMARK_SOURCE_DIR}" "third-party")
 
 # Shared header-only library target used by the independent example projects.
 add_library(libhit INTERFACE)

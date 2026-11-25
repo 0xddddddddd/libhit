@@ -1,4 +1,0 @@
-small 1 0.271638
-small_file 1 0.198421
-small_filter 1 0.184739
----

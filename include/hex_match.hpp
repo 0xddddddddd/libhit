@@ -767,16 +767,19 @@ namespace details
 
             static inline std::uint8_t* match(std::uint8_t* pos,     // Start address of the current block
                                               std::uint8_t* end,     // Last valid match start (inclusive), i.e. range_end - pattern_size
+                                              std::size_t offset,
                                               std::size_t remain,    // Bytes from `pos` to the end of the scan range
                                               const typename matcher_t::context& ctx
             )
             {
-                if (pos > end) {
+                std::uint8_t* cursor = pos - offset;
+
+                if (cursor > end) {
                     return nullptr;
                 }
 
-                if (details::matcher<details::scalar>::match(pos, ctx)) {
-                    return pos;
+                if (details::matcher<details::scalar>::match(cursor, ctx)) {
+                    return cursor;
                 }
 
                 return nullptr;
@@ -899,6 +902,7 @@ namespace details
 
                 pos = details::anchor<details::scalar>::impl::match(hit,
                                                                     end,
+                                                                    anchor_offset,
                                                                     remain,
                                                                     ctx
                 );
@@ -985,9 +989,9 @@ static bool search_pattern_simd(std::uint8_t* start, // Start address of the sca
     return true;
 }
 
-template <typename R = void*, typename F = details::filter_default>
-static bool search_pattern(std::uint8_t* start,                   // Start address of the scan range
-                           std::uint8_t* end,                     // End address of the scan range (exclusive)
+template <typename T, typename R = void*, typename F = details::filter_default>
+static bool search_pattern(T start,                   // Start address of the scan range
+                           T end,                     // End address of the scan range (exclusive)
                            const std::string_view& keyword,       // Hex pattern string, e.g. "48 8B ?? 5?"
                            std::size_t index,                     // One-based index: which match to use when the pattern occurs multiple times
                            std::size_t offset,                    // Byte offset from the match start; result is computed at (match + offset)
@@ -997,26 +1001,8 @@ static bool search_pattern(std::uint8_t* start,                   // Start addre
                            F&& filter = details::filter_default{} // Per-match callback, return true to stop
 )
 {
-    return search_pattern_simd(start, end, keyword, index, offset, size, type,
+    return search_pattern_simd(details::to_byte_ptr(start), details::to_byte_ptr(end), keyword, index, offset, size, type,
                                match_mode::scalar, address, std::forward<F>(filter));
-}
-
-template <typename R = void*, typename F = details::filter_default>
-static bool search_pattern(std::uintptr_t start,                  // Start address of the scan range
-                           std::uintptr_t end,                    // End address of the scan range (exclusive)
-                           const std::string_view& keyword,       // Hex pattern string, e.g. "48 8B ?? 5?"
-                           std::size_t index,                     // One-based index: which match to use when the pattern occurs multiple times
-                           std::size_t offset,                    // Byte offset from the match start; result is computed at (match + offset)
-                           std::size_t size,                      // match_constant only: bytes to read at (match + offset), one of 1/2/4/8
-                           match_type type,                       // How to interpret the match: constant value / rel32 call-jmp target / raw address
-                           R& address,                            // Output address
-                           F&& filter = details::filter_default{} // Per-match callback, return true to stop
-)
-{
-    return search_pattern(reinterpret_cast<std::uint8_t*>(start),
-                          reinterpret_cast<std::uint8_t*>(end),
-                          keyword, index, offset, size, type, address,
-                          std::forward<F>(filter));
 }
 
 template <typename T, typename R = void*, typename F = details::filter_default>

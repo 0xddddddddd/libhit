@@ -1,6 +1,5 @@
 <Solution>
   <Configurations>
-    <Platform Name="Win32" />
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
@@ -9,11 +8,6 @@
     <Project Path="vsprojects/small_file/small_file.vcxproj" Id="2d749764-70d6-4c7d-ba76-69c26c9bf721" />
     <Project Path="vsprojects/small_filter/small_filter.vcxproj" Id="d53c79e5-1277-4cf3-a801-2cb242a100dd" />
   </Folder>
-  <Folder Name="/third-party/">
-    <Project Path="build/third-party/benchmark/src/benchmark.vcxproj" Id="15797d6a-0f17-3729-b5f4-8860caa0ea2d">
-      <Platform Solution="*|x86" Project="x64" />
-      <Platform Solution="Release|Win32" Project="x64" />
-    </Project>
-  </Folder>
-  <Project Path="vsprojects/benchmark.vcxproj" Id="89a3a206-7b08-4a63-862f-50c350a89836" />
+  <Folder Name="/third-party/" />
+  <Project Path="vsprojects/random/random.vcxproj" Id="c19a844c-3248-46c4-9684-f689da5614ff" />
 </Solution>

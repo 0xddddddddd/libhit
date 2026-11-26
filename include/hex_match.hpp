@@ -47,8 +47,8 @@
 #include <optional>
 #include <span>
 #include <memory>
-#include <immintrin.h>
 #include <assert.h>
+#include <immintrin.h>
 
 #ifdef _WIN32
 #   define WIN32_LEAN_AND_MEAN
@@ -88,42 +88,42 @@
 #endif
 
 #ifndef MAKEWORD
-#define MAKEWORD(a, b)  ((std::uint16_t)(((std::uint8_t)(((std::uintptr_t)(a)) & 0xff)) | \
-                        ((std::uint16_t)((std::uint8_t)(((std::uintptr_t)(b)) & 0xff))) << 8))
+#   define MAKEWORD(a, b)   ((std::uint16_t)(((std::uint8_t)(((std::uintptr_t)(a)) & 0xff)) | \
+                            ((std::uint16_t)((std::uint8_t)(((std::uintptr_t)(b)) & 0xff))) << 8))
 #endif
 
 #ifndef MAKELONG
-#define MAKELONG(a, b)  ((std::int32_t)(((std::uint16_t)(((std::uintptr_t)(a)) & 0xffff)) | \
-                        ((std::uint32_t)((std::uint16_t)(((std::uintptr_t)(b)) & 0xffff))) << 16))
+#   define MAKELONG(a, b)   ((std::int32_t)(((std::uint16_t)(((std::uintptr_t)(a)) & 0xffff)) | \
+                            ((std::uint32_t)((std::uint16_t)(((std::uintptr_t)(b)) & 0xffff))) << 16))
 #endif
 
 #ifndef MAKEBYTE
-#define MAKEBYTE(a, b)  ((std::uint8_t)((((std::uintptr_t)(a)) & 0x0f) << 4 | \
-                                       (((std::uintptr_t)(b)) & 0x0f)))
+#   define MAKEBYTE(a, b)   ((std::uint8_t)((((std::uintptr_t)(a)) & 0x0f) << 4 | \
+                            (((std::uintptr_t)(b)) & 0x0f)))
 #endif
 
 #ifndef LOWORD
-#define LOWORD(l)       ((std::uint16_t)(((std::uintptr_t)(l)) & 0xffff))
+#   define LOWORD(l)        ((std::uint16_t)(((std::uintptr_t)(l)) & 0xffff))
 #endif
 
 #ifndef HIWORD
-#define HIWORD(l)       ((std::uint16_t)((((std::uintptr_t)(l)) >> 16) & 0xffff))
+#   define HIWORD(l)        ((std::uint16_t)((((std::uintptr_t)(l)) >> 16) & 0xffff))
 #endif
 
 #ifndef LOBYTE
-#define LOBYTE(w)       ((std::uint8_t)(((std::uintptr_t)(w)) & 0xff))
+#   define LOBYTE(w)        ((std::uint8_t)(((std::uintptr_t)(w)) & 0xff))
 #endif
 
 #ifndef HIBYTE
-#define HIBYTE(w)       ((std::uint8_t)((((std::uintptr_t)(w)) >> 8) & 0xff))
+#   define HIBYTE(w)        ((std::uint8_t)((((std::uintptr_t)(w)) >> 8) & 0xff))
 #endif
 
 #ifndef HINIBBLE
-#define HINIBBLE(b)     ((std::uint8_t)((((std::uintptr_t)(b)) >> 4) & 0x0f))
+#   define HINIBBLE(b)      ((std::uint8_t)((((std::uintptr_t)(b)) >> 4) & 0x0f))
 #endif
 
 #ifndef LONIBBLE
-#define LONIBBLE(b)     ((std::uint8_t)(((std::uintptr_t)(b)) & 0x0f))
+#   define LONIBBLE(b)      ((std::uint8_t)(((std::uintptr_t)(b)) & 0x0f))
 #endif
 
 #if defined(DEBUG) || defined(_DEBUG)

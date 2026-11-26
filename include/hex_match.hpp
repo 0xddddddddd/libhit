@@ -617,22 +617,26 @@ namespace details
             // so the bytes beyond the pattern are wildcards and never affect the result.
             // This reads up to (block - tail) bytes past the end of the pattern, so it is
             // only allowed when enough bytes remain after `pos + ctx.offset`.
-            if (cursor > block && ctx.tail != 0) {
+            if (cursor >= block && ctx.tail != 0) {
                 assert(ctx.blocks == ctx.patterns_v.size() - 1);
                 return traits::match(traits::load(pos + ctx.offset),
                                      ctx.patterns_v[ctx.blocks],
                                      ctx.masks_v[ctx.blocks]);
             }
 
-            // Slow path: compare the tail byte by byte, never touching memory beyond
-            // the pattern. Used when a full-block load is not safe.
-            for (std::size_t i = 0; i < ctx.tail; ++i) {
-                if (static_cast<std::uint8_t>(pos[ctx.offset + i] & ctx.masks[ctx.blocks][i]) != ctx.patterns[ctx.blocks][i]) {
-                    return false;
+            if (ctx.tail <= cursor) {
+                // Slow path: compare the tail byte by byte, never touching memory beyond
+                // the pattern. Used when a full-block load is not safe.
+                for (std::size_t i = 0; i < ctx.tail; ++i) {
+                    if (static_cast<std::uint8_t>(pos[ctx.offset + i] & ctx.masks[ctx.blocks][i]) != ctx.patterns[ctx.blocks][i]) {
+                        return false;
+                    }
                 }
+
+                return true;
             }
 
-            return true;
+            return false;
         }
     };
 

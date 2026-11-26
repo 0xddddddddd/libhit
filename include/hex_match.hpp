@@ -429,6 +429,38 @@ namespace details
     constexpr inline T block_length(T x) noexcept { return (x + (sizeof(T) - 1)) & ~(sizeof(T) - 1); }
     constexpr inline std::uint16_t is_anchor(std::uint16_t w) noexcept { return HIBYTE(w) == 0xFF; }
 
+    template <typename T>
+    static bool search_result(std::uint8_t* pos,  // Match start address returned by the scanner
+                              std::size_t offset, // Byte offset from the match start; base = pos + offset
+                              T& address,         // Output: the resulting value or address (pointer or integer type)
+                              std::size_t size,   // match_constant only: bytes to read at base, one of 1/2/4/8
+                              match_type type     // How to interpret base: constant value / rel32 call-jmp target / raw address
+    )
+    {
+        std::uintptr_t base = reinterpret_cast<std::uintptr_t>(pos) + offset;
+
+        switch (type) {
+            case match_constant:
+                switch (size) {
+                    case 1: address = details::address_cast<T>(static_cast<std::uintptr_t>(CastGet(std::uint8_t, base)));  return false;
+                    case 2: address = details::address_cast<T>(static_cast<std::uintptr_t>(CastGet(std::uint16_t, base))); return false;
+                    case 4: address = details::address_cast<T>(static_cast<std::uintptr_t>(CastGet(std::uint32_t, base))); return false;
+                    case 8: address = details::address_cast<T>(static_cast<std::uintptr_t>(CastGet(std::uint64_t, base))); return false;
+                    default: break;
+                }
+                return true;
+            case match_imm:
+                address = details::address_cast<T>(base + 5 + static_cast<std::uintptr_t>(static_cast<std::intptr_t>(CastGet(std::int32_t, base + 1))));
+                return false;
+            case match_address:
+                address = details::address_cast<T>(base);
+                return false;
+            default: break;
+        }
+
+        return true;
+    }
+
     template <typename T> struct mode_traits;
     template <> struct mode_traits<scalar> { using type = scalar; };
     template <> struct mode_traits<sse2> { using type = sse2; };
@@ -644,14 +676,35 @@ namespace details
     template <>
     struct matcher<scalar>
     {
-        struct context { const std::vector<std::uint16_t>& keyword; };
+        struct context
+        {
+            std::vector<std::uint8_t> patterns;
+            std::vector<std::uint8_t> masks;
+            std::size_t size;
+        };
 
-        static context prepare(const std::vector<std::uint16_t>& keyword) { return { keyword }; }
+        static context prepare(const std::vector<std::uint16_t>& keyword)
+        {
+            context ctx =
+            {
+                std::vector<std::uint8_t>{},
+                std::vector<std::uint8_t>{},
+                keyword.size(),
+            };
+
+            for (std::size_t i = 0, n = keyword.size(); i < n; ++i) {
+                const std::uint16_t word = keyword[i];
+                ctx.patterns.push_back(LOBYTE(word));      // value
+                ctx.masks.push_back(HIBYTE(word));         // mask, see "Pattern word layout"
+            }
+
+            return ctx;
+        }
 
         static bool match(const std::uint8_t* pos, const context& ctx) noexcept
         {
-            for (std::size_t i = 0, n = ctx.keyword.size(); i < n; ++i) {
-                if (static_cast<std::uint8_t>(pos[i] & HIBYTE(ctx.keyword[i])) != LOBYTE(ctx.keyword[i])) {
+            for (std::size_t i = 0, n = ctx.size; i < n; ++i) {
+                if (static_cast<std::uint8_t>(pos[i] & ctx.masks[i]) != ctx.patterns[i]) {
                     return false;
                 }
             }
@@ -663,79 +716,93 @@ namespace details
     template <typename T>
     struct anchor
     {
-        using traits = simd_traits<T>;
-        using mask_t = typename traits::mask_type;
-        using type_t = typename traits::type;
-        using matcher_t = matcher<T>;
-
-        template <typename U>
-        static inline auto cmpeq_mask(std::uint8_t* prev_pos, std::uint8_t* next_pos, U prev, U next)
+        struct simd_impl
         {
-            return static_cast<mask_t>(traits::cmpeq_mask(traits::load(prev_pos), prev,
-                                                          traits::load(next_pos), next));
-        }
+            using traits = typename simd_traits<T>;
+            using mask_t = typename traits::mask_type;
+            using type_t = typename traits::type;
 
-        template <typename U>
-        static inline std::uint8_t* match(std::uint8_t* pos,     // Start address of the current block
-                                          std::uint8_t* end,     // Last valid match start (inclusive), i.e. range_end - pattern_size
-                                          std::size_t remain,    // Bytes from `pos` to the end of the scan range
-                                          U m,                   // Candidate bitmap, bit k corresponds to pos + k
-                                          const typename matcher_t::context& ctx
-        )
-        {
-            // Walk the bitmap from the lowest set bit to the highest.
-            // Candidate addresses are therefore strictly increasing.
-            for (; m; m = static_cast<mask_t>(m & (m - 1)))
+            using matcher_t = typename matcher<T>;
+
+            template <typename U>
+            static inline auto cmpeq_mask(std::uint8_t* prev_pos, std::uint8_t* next_pos, U prev, U next)
             {
-                std::uint8_t* cursor = pos + static_cast<std::size_t>(std::countr_zero(m));
-                // The bitmap covers a whole block, but near the end of the scan range
-                // the high bits map to starts whose pattern would extend past the range.
-                // Candidates are increasing, so once one is out of range, all the
-                // remaining ones are too: stop here.
-                if (cursor > end) {
-                    break;
-                }
-
-                if (matcher_t::match(cursor, remain, ctx)) {
-                    return cursor;
-                }
+                return static_cast<mask_t>(traits::cmpeq_mask(traits::load(prev_pos), prev,
+                                                              traits::load(next_pos), next));
             }
 
-            return nullptr;
-        }
+            template <typename U>
+            static inline std::uint8_t* match(std::uint8_t* pos,     // Start address of the current block
+                                              std::uint8_t* end,     // Last valid match start (inclusive), i.e. range_end - pattern_size
+                                              std::size_t remain,    // Bytes from `pos` to the end of the scan range
+                                              U m,                   // Candidate bitmap, bit k corresponds to pos + k
+                                              const typename matcher_t::context& ctx
+            )
+            {
+                // Walk the bitmap from the lowest set bit to the highest.
+                // Candidate addresses are therefore strictly increasing.
+                for (; m; m = static_cast<mask_t>(m & (m - 1)))
+                {
+                    std::uint8_t* cursor = pos + static_cast<std::size_t>(std::countr_zero(m));
+                    // The bitmap covers a whole block, but near the end of the scan range
+                    // the high bits map to starts whose pattern would extend past the range.
+                    // Candidates are increasing, so once one is out of range, all the
+                    // remaining ones are too: stop here.
+                    if (cursor > end) {
+                        break;
+                    }
+
+                    if (matcher_t::match(cursor, remain, ctx)) {
+                        return cursor;
+                    }
+                }
+
+                return nullptr;
+            }
+        };
+
+        struct scalar_impl
+        {
+            using matcher_t = typename matcher<T>;
+
+            static inline std::uint8_t* match(std::uint8_t* pos,     // Start address of the current block
+                                              std::uint8_t* end,     // Last valid match start (inclusive), i.e. range_end - pattern_size
+                                              std::size_t remain,    // Bytes from `pos` to the end of the scan range
+                                              const typename matcher_t::context& ctx
+            )
+            {
+                if (pos > end) {
+                    return nullptr;
+                }
+
+                if (details::matcher<details::scalar>::match(pos, ctx)) {
+                    return pos;
+                }
+
+                return nullptr;
+            }
+        };
+
+        using impl = std::conditional_t<std::is_same_v<T, scalar>, scalar_impl, simd_impl>;
     };
 
-    template <typename T>
-    static bool search_result(std::uint8_t* pos,  // Match start address returned by the scanner
-                              std::size_t offset, // Byte offset from the match start; base = pos + offset
-                              T& address,         // Output: the resulting value or address (pointer or integer type)
-                              std::size_t size,   // match_constant only: bytes to read at base, one of 1/2/4/8
-                              match_type type     // How to interpret base: constant value / rel32 call-jmp target / raw address
-    )
-    {
-        std::uintptr_t base = reinterpret_cast<std::uintptr_t>(pos) + offset;
+    //template <>
+    //struct anchor<scalar>
+    //{
+    //    template <typename U>
+    //    static inline std::uint8_t* match(std::uint8_t* pos,     // Start address of the current block
+    //                                      std::uint8_t* end,     // Last valid match start (inclusive), i.e. range_end - pattern_size
+    //                                      std::size_t remain,     // Bytes from `pos` to the end of the scan range
+    //                                      const typename matcher_t::context& ctx
+    //    )
+    //    {
+    //        if (details::matcher<details::scalar>::match(pos, ctx)) {
+    //            
+    //        }
 
-        switch (type) {
-            case match_constant:
-                switch (size) {
-                    case 1: address = details::address_cast<T>(static_cast<std::uintptr_t>(CastGet(std::uint8_t, base)));  return false;
-                    case 2: address = details::address_cast<T>(static_cast<std::uintptr_t>(CastGet(std::uint16_t, base))); return false;
-                    case 4: address = details::address_cast<T>(static_cast<std::uintptr_t>(CastGet(std::uint32_t, base))); return false;
-                    case 8: address = details::address_cast<T>(static_cast<std::uintptr_t>(CastGet(std::uint64_t, base))); return false;
-                    default: break;
-                }
-                return true;
-            case match_imm:
-                address = details::address_cast<T>(base + 5 + static_cast<std::uintptr_t>(static_cast<std::intptr_t>(CastGet(std::int32_t, base + 1))));
-                return false;
-            case match_address:
-                address = details::address_cast<T>(base);
-                return false;
-            default: break;
-        }
-
-        return true;
-    }
+    //        return nullptr;
+    //    }
+    //};
 
     template <typename T>
     struct scanner
@@ -780,19 +847,19 @@ namespace details
                     _mm_prefetch(reinterpret_cast<const char*>(start + i + 4096), _MM_HINT_T0);
 
                 typename details::simd_traits<T>::mask_type hit =
-                    details::anchor<T>::cmpeq_mask(cursor + anchor_prev_off,
-                                                   cursor + anchor_next_off,
-                                                   anchor_v_prev,
-                                                   anchor_v_next);
+                    details::anchor<T>::impl::cmpeq_mask(cursor + anchor_prev_off,
+                                                         cursor + anchor_next_off,
+                                                         anchor_v_prev,
+                                                         anchor_v_next);
 
                 if (hit == 0) {
                     continue;
                 }
 
                 std::size_t remain = static_cast<std::size_t>(end - cursor);
-                pos = details::anchor<T>::match(cursor, end, remain,
-                                                hit,
-                                                matcher_context);
+                pos = details::anchor<T>::impl::match(cursor, end, remain,
+                                                      hit,
+                                                      matcher_context);
                 if (pos) {
                     if (details::notify(filter, pos, ++matches) || matches == index)
                         break;
@@ -828,7 +895,7 @@ namespace details
 
             const auto it = std::ranges::find_if(keyword, details::is_anchor);
             if (it == keyword.end()) {
-                return true;    // 全通配/半字节模式不支持
+                return true;
             }
 
             const std::size_t anchor_offset = static_cast<std::size_t>(it - keyword.begin());
@@ -836,17 +903,25 @@ namespace details
             const auto ctx = details::matcher<details::scalar>::prepare(keyword);
 
             std::uint8_t* pos = nullptr;
-            std::uint8_t* cursor = start + anchor_offset;
-            const std::size_t remaining = static_cast<std::size_t>((end - keyword.size()) - start) + 1;
+            std::uint8_t* cursor = start;
 
-            for (std::size_t matches = 0, consumed = 0; consumed < remaining; ) {
-                std::uint8_t* hit = static_cast<std::uint8_t*>(std::memchr(cursor + consumed, anchor, remaining - consumed));
-                if (!hit) {
+            for (std::size_t matches = 0, consumed = 0, remaining = static_cast<std::size_t>(end - start);
+                 cursor + keyword.size() <= end; ) {
+                std::uint8_t* hit = static_cast<std::uint8_t*>(std::memchr(cursor + consumed,
+                                                                           anchor,
+                                                                           remaining - consumed));
+                std::size_t remain = static_cast<std::size_t>(end - hit);
+
+                if (!hit || remain < keyword.size())
                     break;
-                }
 
-                pos = static_cast<std::uint8_t*>(hit - anchor_offset);
-                if (details::matcher<details::scalar>::match(pos, ctx)) {
+                pos = details::anchor<details::scalar>::impl::match(hit,
+                                                                    end,
+                                                                    remain,
+                                                                    ctx
+                );
+
+                if (pos) {
                     if (details::notify(filter, pos, ++matches) || matches == index)
                         break;
                 }

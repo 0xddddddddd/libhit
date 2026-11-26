@@ -786,24 +786,6 @@ namespace details
         using impl = std::conditional_t<std::is_same_v<T, scalar>, scalar_impl, simd_impl>;
     };
 
-    //template <>
-    //struct anchor<scalar>
-    //{
-    //    template <typename U>
-    //    static inline std::uint8_t* match(std::uint8_t* pos,     // Start address of the current block
-    //                                      std::uint8_t* end,     // Last valid match start (inclusive), i.e. range_end - pattern_size
-    //                                      std::size_t remain,     // Bytes from `pos` to the end of the scan range
-    //                                      const typename matcher_t::context& ctx
-    //    )
-    //    {
-    //        if (details::matcher<details::scalar>::match(pos, ctx)) {
-    //            
-    //        }
-
-    //        return nullptr;
-    //    }
-    //};
-
     template <typename T>
     struct scanner
     {

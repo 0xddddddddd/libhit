@@ -617,7 +617,7 @@ namespace details
             // so the bytes beyond the pattern are wildcards and never affect the result.
             // This reads up to (block - tail) bytes past the end of the pattern, so it is
             // only allowed when enough bytes remain after `pos + ctx.offset`.
-            if (cursor <= block && ctx.tail != 0) {
+            if (cursor > block && ctx.tail != 0) {
                 assert(ctx.blocks == ctx.patterns_v.size() - 1);
                 return traits::match(traits::load(pos + ctx.offset),
                                      ctx.patterns_v[ctx.blocks],

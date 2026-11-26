@@ -176,6 +176,7 @@ src/small/                  内置数据示例
 src/small_file/             文件搜索示例
 src/small_filter/           回调过滤示例
 test/benchmark.cc           Google Benchmark 基准程序
+test/random/random.cc       安全单元测试
 third-party/benchmark/      Google Benchmark 子模块
 ```
 

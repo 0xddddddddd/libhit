@@ -611,6 +611,10 @@ namespace details
                 }
             }
 
+            if (ctx.tail > cursor) {
+                return false;
+            }
+
             // Tail: the last `ctx.tail` pattern bytes (pattern_size % block), if any.
             // Fast path: load a whole block at the tail and compare it with a single
             // vector operation. The pattern/mask of the tail block are zero-padded,
@@ -624,19 +628,16 @@ namespace details
                                      ctx.masks_v[ctx.blocks]);
             }
 
-            if (ctx.tail <= cursor) {
-                // Slow path: compare the tail byte by byte, never touching memory beyond
-                // the pattern. Used when a full-block load is not safe.
-                for (std::size_t i = 0; i < ctx.tail; ++i) {
-                    if (static_cast<std::uint8_t>(pos[ctx.offset + i] & ctx.masks[ctx.blocks][i]) != ctx.patterns[ctx.blocks][i]) {
-                        return false;
-                    }
+            // Slow path: compare the tail byte by byte, never touching memory beyond
+            // the pattern. Used when a full-block load is not safe.
+            for (std::size_t i = 0; i < ctx.tail; ++i) {
+                if (static_cast<std::uint8_t>(pos[ctx.offset + i] & ctx.masks[ctx.blocks][i]) != ctx.patterns[ctx.blocks][i]) {
+                    return false;
                 }
-
-                return true;
             }
 
-            return false;
+            return true;
+
         }
     };
 

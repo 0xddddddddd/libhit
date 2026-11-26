@@ -594,10 +594,14 @@ namespace details
             return ctx;
         }
 
-        static inline bool match(const std::uint8_t* pos,
-                                 std::size_t cursor,
-                                 const context& ctx) noexcept
+        static inline bool match(const std::uint8_t* pos,   // Candidate match start
+                                 std::size_t cursor,        // Bytes remaining from `pos` to the end of the scan range
+                                 const context& ctx         // Pre-split pattern/mask blocks (see prepare())
+        ) noexcept
         {
+            // Compare every complete block of the pattern with one vector operation.
+            // These loads stay inside [pos, pos + pattern_size), so they are in range
+            // as long as `pos` is a valid match start.
             for (std::size_t i = 0; i < ctx.blocks; ++i) {
                 const typename traits::type mem = traits::load(pos + i * block);
                 if (!traits::match(mem,
@@ -607,14 +611,22 @@ namespace details
                 }
             }
 
-            if (cursor >= block && ctx.tail > 0) {
+            // Tail: the last `ctx.tail` pattern bytes (pattern_size % block), if any.
+            // Fast path: load a whole block at the tail and compare it with a single
+            // vector operation. The pattern/mask of the tail block are zero-padded,
+            // so the bytes beyond the pattern are wildcards and never affect the result.
+            // This reads up to (block - tail) bytes past the end of the pattern, so it is
+            // only allowed when enough bytes remain after `pos + ctx.offset`.
+            if (cursor <= block && ctx.tail != 0) {
                 assert(ctx.blocks == ctx.patterns_v.size() - 1);
                 return traits::match(traits::load(pos + ctx.offset),
                                      ctx.patterns_v[ctx.blocks],
                                      ctx.masks_v[ctx.blocks]);
             }
 
-            for (std::size_t i = 0; i < ctx.tail; ++i) [[unlikely]] {
+            // Slow path: compare the tail byte by byte, never touching memory beyond
+            // the pattern. Used when a full-block load is not safe.
+            for (std::size_t i = 0; i < ctx.tail; ++i) {
                 if (static_cast<std::uint8_t>(pos[ctx.offset + i] & ctx.masks[ctx.blocks][i]) != ctx.patterns[ctx.blocks][i]) {
                     return false;
                 }
@@ -659,17 +671,28 @@ namespace details
         }
 
         template <typename U>
-        static inline std::uint8_t* match(std::uint8_t* pos,
-                                          std::size_t cursor,
-                                          U m,
+        static inline std::uint8_t* match(std::uint8_t* pos,     // Start address of the current block
+                                          std::uint8_t* end,     // Last valid match start (inclusive), i.e. range_end - pattern_size
+                                          std::size_t remain,    // Bytes from `pos` to the end of the scan range
+                                          U m,                   // Candidate bitmap, bit k corresponds to pos + k
                                           const typename matcher_t::context& ctx
         )
         {
+            // Walk the bitmap from the lowest set bit to the highest.
+            // Candidate addresses are therefore strictly increasing.
             for (; m; m = static_cast<mask_t>(m & (m - 1)))
             {
-                const std::size_t bit = static_cast<std::size_t>(std::countr_zero(m));
-                if (matcher_t::match(pos + bit, cursor, ctx)) {
-                    return pos + bit;
+                std::uint8_t* cursor = pos + static_cast<std::size_t>(std::countr_zero(m));
+                // The bitmap covers a whole block, but near the end of the scan range
+                // the high bits map to starts whose pattern would extend past the range.
+                // Candidates are increasing, so once one is out of range, all the
+                // remaining ones are too: stop here.
+                if (cursor > end) {
+                    break;
+                }
+
+                if (matcher_t::match(cursor, remain, ctx)) {
+                    return cursor;
                 }
             }
 
@@ -756,11 +779,15 @@ namespace details
                                                    cursor + anchor_next_off,
                                                    anchor_v_prev,
                                                    anchor_v_next);
+
                 if (hit == 0) {
                     continue;
                 }
 
-                pos = details::anchor<T>::match(cursor, end - cursor, hit, matcher_context);
+                std::size_t remain = static_cast<std::size_t>(end - cursor);
+                pos = details::anchor<T>::match(cursor, end, remain,
+                                                hit,
+                                                matcher_context);
                 if (pos) {
                     if (details::notify(filter, pos, ++matches) || matches == index)
                         break;

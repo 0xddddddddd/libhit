@@ -878,13 +878,18 @@ namespace details
                 return true;
             }
 
-            const auto it = std::ranges::find_if(keyword, details::is_anchor);
-            if (it == keyword.end()) {
+            const auto keyword_prev_it = std::ranges::find_if(keyword, details::is_anchor);
+            if (keyword_prev_it == keyword.end()) {
                 return true;
             }
 
-            const std::size_t anchor_offset = static_cast<std::size_t>(it - keyword.begin());
-            const std::uint8_t anchor = LOBYTE(*it);
+            const std::size_t anchor_prev_off = static_cast<std::size_t>(keyword_prev_it - keyword.begin());
+            const std::size_t anchor_next_off = keyword.size() - 1 - static_cast<std::size_t>(
+                std::ranges::find_if(keyword.rbegin(), keyword.rend(), details::is_anchor) - keyword.rbegin());
+            const std::size_t anchor_offset = anchor_next_off - anchor_prev_off;
+            const auto anchor_v_prev = LOBYTE(keyword[anchor_prev_off]);
+            const auto anchor_v_next = LOBYTE(keyword[anchor_next_off]);
+
             const auto ctx = details::matcher<details::scalar>::prepare(keyword);
 
             std::uint8_t* pos = nullptr;
@@ -893,23 +898,26 @@ namespace details
             for (std::size_t matches = 0, consumed = 0, remaining = static_cast<std::size_t>(end - start);
                  cursor + keyword.size() <= end; ) {
                 std::uint8_t* hit = static_cast<std::uint8_t*>(std::memchr(cursor + consumed,
-                                                                           anchor,
+                                                                           anchor_v_prev,
                                                                            remaining - consumed));
+
                 std::size_t remain = static_cast<std::size_t>(end - hit);
 
-                if (!hit || remain < keyword.size())
+                if (!hit || hit + anchor_offset > end || remain < keyword.size())
                     break;
 
-                pos = details::anchor<details::scalar>::impl::match(hit,
-                                                                    end,
-                                                                    anchor_offset,
-                                                                    remain,
-                                                                    ctx
-                );
+                if (hit[anchor_offset] == anchor_v_next) {
+                    pos = details::anchor<details::scalar>::impl::match(hit,
+                                                                        end,
+                                                                        anchor_prev_off,
+                                                                        remain,
+                                                                        ctx
+                    );
 
-                if (pos) {
-                    if (details::notify(filter, pos, ++matches) || matches == index)
-                        break;
+                    if (pos) {
+                        if (details::notify(filter, pos, ++matches) || matches == index)
+                            break;
+                    }
                 }
 
                 consumed = static_cast<std::size_t>(hit - cursor) + 1;

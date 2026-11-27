@@ -46,6 +46,8 @@
 #include <functional>
 #include <optional>
 #include <span>
+#include <charconv>
+#include <ranges>
 #include <memory>
 #include <assert.h>
 #include <immintrin.h>
@@ -199,6 +201,7 @@ static constexpr int hexdigit_to_bin(unsigned char ch) noexcept
 // Returns -1 on an invalid character.
 static constexpr std::int32_t hexdigit_nibble_parse(char c) noexcept
 {
+    // "?" matches any byte: value = 0x00, mask = 0x00
     if (c == '?') {
         return 0;
     }
@@ -217,65 +220,35 @@ static constexpr std::int32_t hexdigit_nibble_parse(char c) noexcept
 //   full byte mask  : 0xF0 | 0x0F  = 0xFF
 // Returns -1 on an invalid character, otherwise a value in [0, 0xFFFF]
 // (0xFFFF is a valid result for "FF", so -1 is used as the error marker).
-static constexpr std::int32_t hexdigit_nibble_make(char hi_ch,
-                                                   char lo_ch) noexcept
+static constexpr std::int32_t hexdigit_nibble_make(const std::string_view& token) noexcept
 {
-    std::int32_t hi = hexdigit_nibble_parse(hi_ch);
-    std::int32_t lo = hexdigit_nibble_parse(lo_ch);
-    if (hi < 0 || lo < 0)
-        return -1;
+    switch (token.size()) {
+        case 1:
+        {
+            // "?" matches any byte: value = 0x00, mask = 0x00
+            if (token[0] == '?')
+                return 0;
 
-    return static_cast<std::int32_t>(MAKEWORD(MAKEBYTE(LOBYTE(hi), LOBYTE(lo)),
-                                              MAKEBYTE(HIBYTE(hi), HIBYTE(lo))));
-}
-
-//static constexpr bool search_is_pattern(const std::string& data)
-//{
-//    if (data.empty()) {
-//        return true;
-//    }
-//
-//    if (data.size() & 1) {
-//        throw std::runtime_error("pattern length must be even, got " +
-//                                 std::to_string(data.size()));
-//    }
-//
-//    for (std::size_t i = 0, n = data.size(); i < n; i += 2) {
-//        auto hi = hexdigit_nibble_parse(data[i]);
-//        auto lo = hexdigit_nibble_parse(data[i + 1]);
-//        if (!hi)
-//            throw std::runtime_error("invalid char '" + std::string(1, data[i]) +
-//                                     "' at position " + std::to_string(i + 1));
-//
-//        if (!lo)
-//            throw std::runtime_error("invalid char '" + std::string(1, data[i + 1]) +
-//                                     "' at position " + std::to_string(i + 2));
-//    }
-//
-//    return false;
-//}
-
-static bool string_replace(std::string& source,
-                           const std::string& delimiters,
-                           const std::string& dispose = "",
-                           const std::size_t offset = 1)
-{
-    if (source.empty()) {
-        return true;
-    }
-
-    if (delimiters.empty()) {
-        return true;
-    }
-
-    for (std::string::size_type pos = source.find(delimiters); pos != std::string::npos; pos = source.find(delimiters)) {
-        if (source.replace(pos, offset, dispose).size()) {
-            continue;
+            // A single hex digit such as "F" is treated as "0F" and matches exactly:
+            // value = 0x0F, mask = 0xFF
+            const auto n = hexdigit_nibble_parse(token[0]);
+            if (n < 0)
+                return -1;
+            return static_cast<std::int32_t>(MAKEWORD(LOBYTE(n), 0xFF));
         }
-        return true;
+        case 2:
+        {
+            const auto hi = hexdigit_nibble_parse(token[0]);
+            const auto lo = hexdigit_nibble_parse(token[1]);
+            if (hi < 0 || lo < 0)
+                return -1;
+            return static_cast<std::int32_t>(MAKEWORD(MAKEBYTE(LOBYTE(hi), LOBYTE(lo)),
+                                                      MAKEBYTE(HIBYTE(hi), HIBYTE(lo))));
+        }
+        default: break;
     }
 
-    return false;
+    return -1;
 }
 
 static inline bool remove_space(std::string& source)
@@ -287,26 +260,42 @@ static inline bool remove_space(std::string& source)
     return std::erase_if(source, [] (char c) { return std::isspace(static_cast<int>(c)); }) < 0;
 }
 
+// Parses a signature string such as "48 ? 8B ?? 05 4? ?F" into a list of
+// (value, mask) pairs packed into 16-bit words:
+//   low byte  = value bits to match
+//   high byte = mask  (1 = compare, 0 = wildcard)
+//
+// Returns false on success, true if the signature is invalid.
 static bool hexdigit_to_xdigit(const std::string_view& data,
                                std::vector<std::uint16_t>& buffer)
 {
+    // An empty signature is treated as valid and produces no output.
     if (data.empty()) {
         return true;
     }
 
+    // Work on a copy so whitespace can be normalized in place.
     std::string masks(data);
     {
-        // 去掉 空格
-        if (remove_space(masks)) {
-            return true;
+        // Normalize whitespace: replace tabs, newlines, etc. with a plain space (0x20)
+        // so that a single delimiter is enough for splitting.
+        // Note: the cast to unsigned char avoids undefined behavior in std::isspace
+        // for negative char values.
+        for (char& c : masks | std::views::filter([] (char c) noexcept {
+            return std::isspace(static_cast<unsigned char>(c)) != 0;
+        })) {
+            c = 0x20;
         }
 
-        if (masks.size() & 1) {
-            return true;
-        }
-
-        for (std::size_t i = 0, n = masks.size(); i < n; i += 2) {
-            std::int32_t mask = hexdigit_nibble_make(masks[i], masks[i + 1]);
+        // Split on spaces (empty tokens from consecutive spaces are skipped)
+        // and convert each token to a packed (value, mask) word.
+        // The tokens are views into `masks`, which outlives the loop.
+        for (const std::string_view& token : masks | std::views::split(0x20)
+             | std::views::transform([] (auto&& r) { return std::string_view(r.begin(), r.end()); })
+             | std::views::filter([] (const std::string_view& s) { return !s.empty(); }))
+        {
+            // Negative result means the token is not a valid signature byte.
+            std::int32_t mask = hexdigit_nibble_make(token);
             if (mask < 0)
                 return true;
 

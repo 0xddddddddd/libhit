@@ -71,6 +71,10 @@
 #   define HEXMATCH_HAS_AVX512 0
 #endif
 
+#ifndef TLB_PF_DISTANCE
+#   define TLB_PF_DISTANCE 4096
+#endif
+
 #ifndef CastSet
 #   define CastSet(t, x) *std::bit_cast<t*>(x)
 #endif
@@ -274,6 +278,15 @@ static bool string_replace(std::string& source,
     return false;
 }
 
+static inline bool remove_space(std::string& source)
+{
+    if (source.empty()) {
+        return true;
+    }
+
+    return std::erase_if(source, [] (char c) { return std::isspace(static_cast<int>(c)); }) < 0;
+}
+
 static bool hexdigit_to_xdigit(const std::string_view& data,
                                std::vector<std::uint16_t>& buffer)
 {
@@ -284,7 +297,7 @@ static bool hexdigit_to_xdigit(const std::string_view& data,
     std::string masks(data);
     {
         // 去掉 空格
-        if (string_replace(masks, " ")) {
+        if (remove_space(masks)) {
             return true;
         }
 
@@ -829,7 +842,7 @@ namespace details
                  cursor += details::simd_traits<T>::block, i += details::simd_traits<T>::block)
             {
                 if ((i & (64 - 1)) == 0)
-                    _mm_prefetch(reinterpret_cast<const char*>(start + i + 4096), _MM_HINT_T0);
+                    _mm_prefetch(reinterpret_cast<const char*>(start + i + TLB_PF_DISTANCE), _MM_HINT_T0);
 
                 typename details::simd_traits<T>::mask_type hit =
                     details::anchor<T>::impl::cmpeq_mask(cursor + anchor_prev_off,
@@ -906,7 +919,8 @@ namespace details
                 if (!hit || hit + anchor_offset > end || remain < keyword.size())
                     break;
 
-                if (hit[anchor_offset] == anchor_v_next) {
+                if (hit[anchor_offset] == anchor_v_next)
+                {
                     pos = details::anchor<details::scalar>::impl::match(hit,
                                                                         end,
                                                                         anchor_prev_off,

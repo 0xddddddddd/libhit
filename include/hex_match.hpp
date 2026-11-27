@@ -240,11 +240,70 @@ static constexpr std::int32_t hexdigit_nibble_make(const std::string_view& token
             if (token[0] == '?')
                 return 0;
 
-            // A single hex digit such as "F" is treated as "0F" and matches exactly:
-            // value = 0x0F, mask = 0xFF
+            // ---------------------------------------------------------------
+            // Single hex digit token, e.g. "F", "0", "5"
+            // ---------------------------------------------------------------
+            // A one-character token is treated as a zero-padded byte and
+            // compared exactly:
+            //
+            //      "F" -> "0F" -> value = 0x0F, mask = 0xFF  -> word 0xFF0F
+            //      "0" -> "00" -> value = 0x00, mask = 0xFF  -> word 0xFF00
+            //      "5" -> "05" -> value = 0x05, mask = 0xFF  -> word 0xFF05
+            //
+            // So a single-digit token can only represent bytes 0x00 ~ 0x0F.
+            //
+            // Example (x64):
+            //
+            //      mov   eax, 0x0F          ; B8 0F 00 00 00
+            //      nop   dword ptr [rax]    ; 0F 1F 00
+            //      syscall                  ; 0F 05
+            //      ret                      ; C3
+            //
+            //      static const std::uint8_t code[] = {
+            //          0xB8, 0x0F, 0x00, 0x00, 0x00,   // mov eax, 0x0F
+            //          0x0F, 0x1F, 0x00,               // nop dword ptr [rax]
+            //          0x0F, 0x05,                     // syscall
+            //          0xC3                            // ret
+            //      };
+            //
+            //      pattern (short form)    : B8 F 0 0 0 F 1F 0 F 5 C3
+            //      pattern (canonical form): B8 0F 00 00 00 0F 1F 00 0F 05 C3
+            //      Both forms parse into the same word array:
+            //      { 0xFFB8, 0xFF0F, 0xFF00, 0xFF00, 0xFF00, 0xFF0F,
+            //        0xFF1F, 0xFF00, 0xFF0F, 0xFF05, 0xFFC3 }
+            //
+            // Notes:
+            //  1. "F" means 0F, NOT "F?". To match any byte whose high nibble
+            //     is F, write "F?" (handled by case 2, mask = 0xF0).
+            //     To match any byte whose low nibble is F, write "?F".
+            //  2. "?" never reaches this point: it is intercepted above and
+            //     returns 0 (value = 0, mask = 0, whole-byte wildcard).
+            //  3. The mask is 0xFF, so these tokens are valid anchors for the
+            //     memchr / SIMD pre-filter (see is_anchor()).
+            //     However "0" (00) and "F" (0F) are very frequent bytes in
+            //     real binaries (padding, immediates, two-byte opcode prefix).
+            //     If a pattern's first and last anchors are both such bytes,
+            //     the scan produces many false candidates and gets slower.
+            //     Prefer a rarer byte as the anchor when possible.
+            //  4. A single non-hex character ('G', 'x', '.', ...) is invalid:
+            //     hexdigit_nibble_parse() returns -1 and the whole signature
+            //     is rejected (the search function returns true = failure).
+            //  5. Tokens longer than 2 characters (e.g. "123") fall through to
+            //     `default` in the switch and also return -1.
+            //  6. Typo risk: writing "5" while meaning "5?" silently becomes
+            //     the exact byte 05 and the scan will simply not find the
+            //     intended code. When in doubt, always write two characters
+            //     per byte ("0F", "05", "5?").
+            //  7. A valid result is in [0, 0xFFFF] (e.g. 0xFFFF for byte FF
+            //     in case 2), so -1 is the only error marker; callers must
+            //     check `< 0` on the int32_t before narrowing to uint16_t.
+            // ---------------------------------------------------------------
             const auto n = hexdigit_nibble_parse(token[0]);
             if (n < 0)
                 return -1;
+
+            // LOBYTE(n) = the nibble value (0x0 ~ 0xF) -> becomes the pattern byte 0x0N
+            // 0xFF      = compare the whole byte (both nibbles)
             return static_cast<std::int32_t>(MAKEWORD(LOBYTE(n), 0xFF));
         }
         case 2:

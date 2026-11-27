@@ -65,6 +65,7 @@ namespace
             if (percent(rng()) >= wildcard_percent) {
                 pattern += hi;
                 pattern += lo;
+                pattern += ' ';
                 continue;
             }
 
@@ -73,6 +74,7 @@ namespace
                 case 1:  pattern += hi;  pattern += '?'; break;
                 default: pattern += '?'; pattern += '?'; break;
             }
+            pattern += ' ';
         }
     }
 
@@ -123,7 +125,7 @@ int main()
 
         const auto t0 = std::chrono::steady_clock::now();
 
-        const bool failed = search_pattern_sse2(v.buf.data(),
+        const bool failed = search_pattern(v.buf.data(),
                                                 v.buf.data() + v.buf.size(),
                                                 v.pattern,
                                                 1, 0, 0, match_address, result);

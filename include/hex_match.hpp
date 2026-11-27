@@ -73,6 +73,15 @@
 #   define HEXMATCH_HAS_AVX512 0
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+#   define SIMD_DIAG_PUSH   _Pragma("GCC diagnostic push") \
+                            _Pragma("GCC diagnostic ignored \"-Wignored-attributes\"")
+#   define SIMD_DIAG_POP    _Pragma("GCC diagnostic pop")
+#else
+#   define SIMD_DIAG_PUSH
+#   define SIMD_DIAG_POP
+#endif
+
 #ifndef TLB_PF_DISTANCE
 #   define TLB_PF_DISTANCE 4096
 #endif
@@ -132,8 +141,10 @@
 #   define LONIBBLE(b)      ((std::uint8_t)(((std::uintptr_t)(b)) & 0x0f))
 #endif
 
-#if defined(DEBUG) || defined(_DEBUG)
-#   pragma optimize("gt", on)
+#if defined(_MSC_VER)
+#   if defined(DEBUG) || defined(_DEBUG)
+#       pragma optimize("gt", on)
+#   endif
 #endif
 
 enum match_type
@@ -588,9 +599,12 @@ namespace details
         {
             std::vector<std::array<std::uint8_t, block>> patterns;
             std::vector<std::array<std::uint8_t, block>> masks;
-            // GCC -Wignored-attributes
+// Many [[gnu::vector_size(N)]] types might lead to a -Wpsabi warning which is
+// irrelevant as those functions never appear on ABI borders
+SIMD_DIAG_PUSH
             std::vector<typename traits::type> patterns_v;
             std::vector<typename traits::type> masks_v;
+SIMD_DIAG_POP
             std::size_t size;
             std::size_t blocks;                                 // 完整块数
             std::size_t tail;                                   // 尾部字节数
@@ -1082,8 +1096,10 @@ static bool search_pattern_avx512(T start,                               // Star
 }
 #endif
 
-#if defined(DEBUG) || defined(_DEBUG)
-#   pragma optimize("gt", off)
+#if defined(_MSC_VER)
+#   if defined(DEBUG) || defined(_DEBUG)
+#       pragma optimize("gt", off)
+#   endif
 #endif
 
 #endif // __HEX_MATCH_H__
